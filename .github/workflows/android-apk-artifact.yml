@@ -1,0 +1,68 @@
+name: Android APK Artifact
+
+on:
+  push:
+    branches:
+      - codex/android-apk-artifact-*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-play-debug-apk:
+    name: Build Play debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK cmdline-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_SDK_ROOT="$HOME/.android-sdk"
+          CMDLINE_TOOLS_VERSION="12266719"
+          ARCHIVE="commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip"
+          URL="https://dl.google.com/android/repository/${ARCHIVE}"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -fsSL "$URL" -o "/tmp/${ARCHIVE}"
+          rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          unzip -q "/tmp/${ARCHIVE}" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Build APK
+        working-directory: apps/android
+        shell: bash
+        run: ./gradlew --no-daemon :app:assemblePlayDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-play-debug-apk
+          path: apps/android/app/build/outputs/apk/play/debug/*.apk
+          if-no-files-found: error
